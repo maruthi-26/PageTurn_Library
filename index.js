@@ -32,4 +32,7 @@ const initializeDBAndServer = async () => {
 
 initializeDBAndServer();
 
-// Other members will add routes below this line
+app.get("/books/", async (req, res) => {
+  const books = await db.all("SELECT * FROM books ORDER BY id;");
+  res.status(200).send(books);
+});
