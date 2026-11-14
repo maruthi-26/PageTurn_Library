@@ -4,11 +4,9 @@ const sqlite3 = require("sqlite3");
 const path = require("path");
 
 const app = express();
-
 app.use(express.json());
 
 const dbPath = path.join(__dirname, "library.db");
-
 let db = null;
 
 const initializeDBAndServer = async () => {
@@ -33,9 +31,21 @@ const initializeDBAndServer = async () => {
 initializeDBAndServer();
 
 // GET all books
-app.get("/books/", async (req, res) => {
-  const books = await db.all("SELECT * FROM books ORDER BY id;");
-  res.status(200).send(books);
+app.get("/books/", async (request, response) => {
+  const { genre = "" } = request.query;
+
+  let getBooksQuery = `SELECT * FROM books`;
+  let params = [];
+
+  if (genre) {
+    getBooksQuery += ` WHERE genre LIKE ?`;
+    params.push(`%${genre}%`);
+  }
+
+  getBooksQuery += ` ORDER BY id;`;
+
+  const books = await db.all(getBooksQuery, params);
+  response.status(200).send(books);
 });
 
 // GET one book by ID
@@ -47,29 +57,85 @@ app.get("/books/:bookId/", async (req, res) => {
 });
 
 // POST - Add a new book
-app.post("/books/", async (req, res) => {
-  const { name, genre } = req.body;
-  const result = await db.run(
-    "INSERT INTO books (name, genre) VALUES (?, ?);", [name, genre]
+app.post("/books/", async (request, response) => {
+  const { name, genre } = request.body;
+
+  if (!name || !genre) {
+    return response.status(400).send({
+      message: "Name and genre are required",
+    });
+  }
+
+  const existingBook = await db.get(
+    `SELECT * FROM books WHERE LOWER(name) = LOWER(?);`,
+    [name]
   );
-  res.status(201).send({ message: "Book added successfully", bookId: result.lastID });
+
+  if (existingBook) {
+    return response.status(409).send({
+      message: `Book ${name} already exists`,
+    });
+  }
+
+  const addBookQuery = `
+    INSERT INTO books (name, genre)
+    VALUES (?, ?);
+  `;
+  const dbResponse = await db.run(addBookQuery, [name, genre]);
+
+  response.status(201).send({
+    message: "Book added successfully",
+    bookId: dbResponse.lastID,
+  });
 });
 
-// PUT - Update a book
-app.put("/books/:bookId/", async (req, res) => {
-  const { bookId } = req.params;
-  const { name, genre } = req.body;
-  const book = await db.get("SELECT * FROM books WHERE id = ?;", [bookId]);
-  if (!book) return res.status(404).send({ message: "Book not found" });
-  await db.run("UPDATE books SET name = ?, genre = ? WHERE id = ?;", [name, genre, bookId]);
-  res.status(200).send({ message: "Book updated successfully" });
+app.put("/books/:bookId/", async (request, response) => {
+  const { bookId } = request.params;
+  const { name, genre } = request.body;
+
+
+  if (!name || !genre) {
+    return response.status(400).send({
+      message: "Name and genre are required",
+    });
+  }
+
+  // Check if book exists
+  const book = await db.get(`SELECT * FROM books WHERE id = ?;`, [bookId]);
+  if (book === undefined) {
+    return response.status(404).send({ message: "Book not found" });
+  }
+
+  const existingBook = await db.get(
+    `SELECT * FROM books WHERE LOWER(name) = LOWER(?) AND id != ?;`,
+    [name, bookId]
+  );
+
+  if (existingBook) {
+    return response.status(409).send({
+      message: `Book ${name} already exists`,
+    });
+  }
+
+  const updateBookQuery = `
+    UPDATE books
+    SET name = ?, genre = ?
+    WHERE id = ?;
+  `;
+  await db.run(updateBookQuery, [name, genre, bookId]);
+  response.status(200).send({ message: "Book updated successfully" });
 });
 
 // DELETE a book
-app.delete("/books/:bookId/", async (req, res) => {
-  const { bookId } = req.params;
-  const book = await db.get("SELECT * FROM books WHERE id = ?;", [bookId]);
-  if (!book) return res.status(404).send({ message: "Book not found" });
-  await db.run("DELETE FROM books WHERE id = ?;", [bookId]);
-  res.status(200).send({ message: "Book deleted successfully" });
+app.delete("/books/:bookId/", async (request, response) => {
+  const { bookId } = request.params;
+
+  const book = await db.get(`SELECT * FROM books WHERE id = ?;`, [bookId]);
+  if (book === undefined) {
+    return response.status(404).send({ message: "Book not found" });
+  }
+
+  const deleteBookQuery = `DELETE FROM books WHERE id = ?;`;
+  await db.run(deleteBookQuery, [bookId]);
+  response.status(200).send({ message: "Book deleted successfully" });
 });
