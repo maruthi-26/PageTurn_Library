@@ -139,3 +139,16 @@ app.delete("/books/:bookId/", async (request, response) => {
   await db.run(deleteBookQuery, [bookId]);
   response.status(200).send({ message: "Book deleted successfully" });
 });
+
+// GET all loans with reader name and book name 
+app.get("/loans/", async (req, res) => {
+  const query = `
+  SELECT loans.id, readers.name AS reader_name,
+  books.name AS book_name, loans.loan_date
+  FROM loans
+  INNER JOIN readers ON loans.reader_id = readers.id
+  INNER JOIN books ON loans.book_id = books.id
+  ORDER BY loans.id;
+  `;
+  const loans = await db.all(query);
+  res.status(200).send(loans); });
